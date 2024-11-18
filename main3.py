@@ -55,75 +55,62 @@ history = model.fit(
 # Salvando o modelo
 model.save('prick_test_segmentation_model.h5')
 
-def detect_and_measure(img_path):
-    # Caminho para salvar a imagem processada
-    output_dir = 'C:\\Users\\rober\\Desktop\\PrickTest\\resultado3'
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
-    save_path = os.path.join(output_dir, 'result_image.jpg')
-
-    # Carrega e prepara a imagem
-    img = load_img(img_path, target_size=(150, 150))
-    img_array = img_to_array(img) / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
-
-    # Faz a predição de segmentação
-    prediction = model.predict(img_array)
-    mask = (prediction[0, :, :, 0] > 0.2).astype(np.uint8)  # Máscara binária
-
-    # Exibir a máscara para debug
-    plt.imshow(mask, cmap='gray')
-    plt.title("Máscara Gerada")
-    plt.axis('off')
-    plt.show()
-
-    # Remova as operações de morfologia para debug
-    # kernel = np.ones((3, 3), np.uint8)
-    # mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    # mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-
-    # Redimensiona a imagem original para desenhar sobre ela
+def detect_bumps_opencv(img_path):
+    # Carrega a imagem
     original_img = cv2.imread(img_path)
-    original_img = cv2.resize(original_img, (150, 150))
+    original_img = cv2.resize(original_img, (600, 400))  # Redimensiona para facilitar o processamento
 
-    # Encontra contornos na máscara
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Converte para escala de cinza
+    gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
+
+    # Suaviza a imagem para reduzir ruídos
+    blurred = cv2.GaussianBlur(gray, (9, 9), 0)
+
+    # Detecta bordas usando o Canny
+    edges = cv2.Canny(blurred, threshold1=30, threshold2=100)
+
+    # Fecha as bordas para formar contornos completos
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+
+    # Encontra os contornos na imagem
+    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     # Lista para armazenar tamanhos dos calombos
     lump_sizes = []
 
-    # Desabilite o filtro de área para debug
+    # Filtra contornos e desenha na imagem original
+    min_area = 50  # Área mínima para contornos
+    max_area = 1000  # Área máxima para contornos
     for contour in contours:
         area = cv2.contourArea(contour)
-        if area > 0:  # Temporariamente pega todos os contornos
+        if min_area <= area <= max_area:
+            # Adiciona o tamanho do calombo à lista
             lump_sizes.append(area)
 
-            # Calcula o centro e o raio do círculo mínimo que envolve o contorno
-            (x, y), radius = cv2.minEnclosingCircle(contour)
-            center = (int(x), int(y))
-            radius = int(radius)
+            # Calcula o retângulo delimitador do contorno
+            x, y, w, h = cv2.boundingRect(contour)
 
-            # Desenha o círculo ao redor do calombo
-            cv2.circle(original_img, center, radius, (0, 255, 0), 2)
+            # Desenha o retângulo ao redor do calombo
+            cv2.rectangle(original_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-            # Anota o tamanho do calombo na imagem
-            cv2.putText(original_img, f"{area:.1f}", (center[0] - 10, center[1] - 10),
+            # Anota o tamanho do calombo
+            cv2.putText(original_img, f"{area:.1f}", (x, y - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
 
-    # Salva a imagem anotada
-    cv2.imwrite(save_path, original_img)
+    # Salva e exibe a imagem anotada
+    output_path = 'detected_bumps.jpg'
+    cv2.imwrite(output_path, original_img)
 
-    # Exibe a imagem anotada
     plt.imshow(cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB))
     plt.axis('off')
+    plt.title("Calombos Detectados")
     plt.show()
 
-    # Retorna os tamanhos dos calombos
     return lump_sizes
 
 
 # Teste com uma nova imagem
 test_image_path = 'C:\\Users\\rober\\Desktop\\PrickTest\\resultado\\resultado1.png'
-lump_sizes = detect_and_measure(test_image_path)
+lump_sizes = detect_bumps_opencv(test_image_path)
 print("Tamanhos dos calombos detectados:", lump_sizes)
